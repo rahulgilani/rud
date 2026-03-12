@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -94,6 +95,15 @@ def unit_label(unit: str) -> str:
     return "Mbps" if unit == "mbps" else "KB/s"
 
 
+def format_bytes_compact(n: float) -> str:
+    """Short form with no spaces: 120M, 1.2G, 512K"""
+    for suffix in ("B", "K", "M", "G", "T"):
+        if n < 1024:
+            return f"{n:.0f}{suffix}"
+        n /= 1024
+    return f"{n:.0f}P"
+
+
 def get_default_interface() -> str | None:
     try:
         out = subprocess.run(
@@ -150,6 +160,8 @@ class RealtimeUploadDownload(rumps.App):
         self._acc_start  = time.time()
         self._last_flush = time.time()
 
+        self._hotkey_pending = False
+
         super().__init__(APP_NAME, title="↑-- ↓--", quit_button=None)
 
         self._init_log()
@@ -158,6 +170,8 @@ class RealtimeUploadDownload(rumps.App):
 
         self._timer = rumps.Timer(self._tick, self.config["update_interval"])
         self._timer.start()
+
+        self._start_hotkey_listener()
 
     # ── Config ────────────────────────────────────────────────────────────────
 
@@ -253,6 +267,11 @@ class RealtimeUploadDownload(rumps.App):
     # ── Timer tick ────────────────────────────────────────────────────────────
 
     def _tick(self, _sender):
+        # Process hotkey triggered from background thread
+        if self._hotkey_pending:
+            self._hotkey_pending = False
+            self._cycle_display_mode()
+
         now   = time.time()
         iface = (
             get_default_interface()
@@ -336,10 +355,12 @@ class RealtimeUploadDownload(rumps.App):
                 f"↓{format_bytes(self._session_recv)}"
             )
         else:
+            # Compact combined format to avoid overflowing the menu bar
+            u_abbr = "M" if u == "mbps" else "K"
             self.title = (
-                f"↑{up_s} ↓{dn_s} {label}  "
-                f"↑{format_bytes(self._session_sent)} "
-                f"↓{format_bytes(self._session_recv)}"
+                f"↑{up_s}↓{dn_s}{u_abbr} "
+                f"↑{format_bytes_compact(self._session_sent)}"
+                f"↓{format_bytes_compact(self._session_recv)}"
             )
 
     def _refresh_session(self):
@@ -440,6 +461,7 @@ class RealtimeUploadDownload(rumps.App):
             None,
             rumps.MenuItem("View Total Bandwidth…", callback=self._show_totals),
             None,
+            rumps.MenuItem("Cycle Display Mode  ⌘⇧D", callback=self._on_cycle_display),
             dm_menu,
             u_menu,
             iv_menu,
@@ -465,6 +487,37 @@ class RealtimeUploadDownload(rumps.App):
                 f"Total:       {format_bytes(sent + recv)}"
             ),
         )
+
+    def _cycle_display_mode(self):
+        """Cycle through display modes. Called by hotkey or menu item."""
+        order = ["speed", "totals", "both"]
+        current = self.config["display_mode"]
+        next_mode = order[(order.index(current) + 1) % len(order)]
+        self.config["display_mode"] = next_mode
+        self._save_config()
+        for k, it in self._dm_items.items():
+            it.state = int(k == next_mode)
+
+    def _on_cycle_display(self, _):
+        self._cycle_display_mode()
+
+    def _start_hotkey_listener(self):
+        """Register global hotkey ⌘⇧D to cycle display modes."""
+        def run():
+            try:
+                from pynput import keyboard
+
+                def on_activate():
+                    self._hotkey_pending = True
+
+                listener = keyboard.GlobalHotKeys({"<cmd>+<shift>+d": on_activate})
+                listener.start()
+                listener.join()
+            except Exception:
+                pass  # Silently skip if pynput unavailable or Accessibility not granted
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
 
     def _on_display_mode(self, sender):
         key_map = {

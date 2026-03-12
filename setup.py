@@ -11,8 +11,9 @@ OPTIONS = {
         "CFBundleVersion":            "1.0.0",
         "CFBundleShortVersionString": "1.0.0",
         "NSHighResolutionCapable":    True,
+        "NSAccessibilityUsageDescription": "Required to enable the global keyboard shortcut (⌘⇧D) for cycling display modes.",
     },
-    "packages": ["rumps", "psutil"],
+    "packages": ["rumps", "psutil", "pynput"],
 }
 
 setup(
