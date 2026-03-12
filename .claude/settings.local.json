@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(chmod +x \"/Users/rahulgilani/Documents/Real Time Up Down/build.sh\" && ls -la \"/Users/rahulgilani/Documents/Real Time Up Down\")",
-      "Bash(python3 --version && command -v create-dmg && echo \"create-dmg found\" || echo \"create-dmg NOT found\")",
-      "Bash(command -v brew && brew --version || echo \"Homebrew NOT found\")"
-    ]
-  }
-}
